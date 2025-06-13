@@ -276,7 +276,7 @@
                     }
 
                     const breakpointType = isCodingBreakpoint ? 'coding_breakpoint' : 'non-coding_breakpoint';
-                    let summaryParts = [`partial,${breakpointType}`];
+                    let summaryParts = [`partial;${breakpointType}`];
                     log.push(`\nFinal Determination: The overlap involves a ${isCodingBreakpoint ? 'coding' : 'non-coding'} breakpoint.`);
 
                     if (showExonsInsideCheck.checked && exonsInCnv.size > 0) {
