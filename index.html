@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNV Gene Intersection Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .spinner {
+            border-color: #3498db;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        details>summary {
+            list-style: none;
+        }
+
+        details>summary::-webkit-details-marker {
+            display: none;
+        }
+
+        /* Custom focus styles for checkboxes */
+        input[type="checkbox"]:focus {
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 md:p-8">
+
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">CNV Gene Analyzer</h1>
+            <p class="text-gray-600 mt-2">Enter CNV regions (hg38) to find intersecting genes from Ensembl.</p>
+        </div>
+
+        <!-- Input Section -->
+        <div class="mb-4">
+            <label for="cnv-input" class="block text-sm font-medium text-gray-700 mb-2">CNV Regions:</label>
+            <textarea id="cnv-input" rows="6"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                placeholder="Enter one or more regions, e.g.,&#10;7:140719331-140783331&#10;13:32315474-32335474&#10;X:155019803-155029803"></textarea>
+            <p class="text-xs text-gray-500 mt-1">Format: [chrom]:[start]-[end]. One region per line or comma-separated.
+            </p>
+        </div>
+
+        <!-- Options Section -->
+        <div class="mb-6 space-y-2 sm:space-y-0 sm:flex sm:items-center sm:space-x-6">
+            <p class="text-sm font-medium text-gray-700">Include in summary:</p>
+            <div class="flex items-center">
+                <input id="show-exons-inside" type="checkbox"
+                    class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <label for="show-exons-inside" class="ml-2 block text-sm text-gray-900">Exons inside CNV</label>
+            </div>
+            <div class="flex items-center">
+                <input id="show-exons-breakpoint" type="checkbox"
+                    class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <label for="show-exons-breakpoint" class="ml-2 block text-sm text-gray-900">Exons at breakpoint</label>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-center">
+            <button id="submit-btn"
+                class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 flex items-center">
+                <svg id="spinner" class="spinner w-5 h-5 mr-3 hidden" viewBox="0 0 24 24"></svg>
+                <span>Analyze Regions</span>
+            </button>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-area" class="mt-8 hidden">
+            <!-- Tab-separated output -->
+            <div>
+                <label for="output-textarea" class="block text-lg font-semibold text-gray-800 mb-2">Tab-Separated
+                    Output</label>
+                <textarea id="output-textarea" readonly rows="8"
+                    class="w-full p-3 font-mono text-sm bg-gray-50 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <!-- Detailed logs -->
+            <div class="mt-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-2">Detailed Logs</h3>
+                <div id="logs-container">
+                    <p class="text-sm text-gray-500">Detailed analysis logs will appear here.</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // DOM Elements
+        const submitBtn = document.getElementById('submit-btn');
+        const spinner = document.getElementById('spinner');
+        const cnvInput = document.getElementById('cnv-input');
+        const resultsArea = document.getElementById('results-area');
+        const outputTextarea = document.getElementById('output-textarea');
+        const logsContainer = document.getElementById('logs-container');
+        const showExonsInsideCheck = document.getElementById('show-exons-inside');
+        const showExonsBreakpointCheck = document.getElementById('show-exons-breakpoint');
+
+        const ensemblServer = 'https://rest.ensembl.org';
+
+        submitBtn.addEventListener('click', handleSubmission);
+
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') return '';
+            return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        async function handleSubmission() {
+            const rawInput = cnvInput.value.trim();
+            if (!rawInput) {
+                return;
+            }
+
+            const regions = rawInput.split(/[\n,]+/).filter(r => r.trim() !== '');
+
+            // Reset UI for new submission
+            resultsArea.classList.remove('hidden');
+            outputTextarea.value = '';
+            logsContainer.innerHTML = '<p class="text-sm text-gray-500">Detailed analysis logs will appear here.</p>';
+            toggleLoading(true);
+
+            for (const regionStr of regions) {
+                await analyzeSingleRegion(regionStr.trim());
+            }
+
+            toggleLoading(false);
+        }
+
+        function toggleLoading(isLoading) {
+            if (isLoading) {
+                spinner.classList.remove('hidden');
+                submitBtn.disabled = true;
+                submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                spinner.classList.add('hidden');
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        async function analyzeSingleRegion(regionStr) {
+            const regionRegex = /^(\w+):(\d+)-(\d+)$/;
+            const match = regionStr.match(regionRegex);
+
+            if (!match) {
+                appendOutputLine(regionStr, 'ERROR: Invalid format');
+                renderLog(regionStr, 'Invalid region format provided.', true);
+                return;
+            }
+
+            const [, chr, start, end] = match;
+            const cnvStart = parseInt(start, 10);
+            const cnvEnd = parseInt(end, 10);
+
+            if (cnvStart >= cnvEnd) {
+                appendOutputLine(regionStr, 'ERROR: Start coordinate must be less than end coordinate.');
+                renderLog(regionStr, 'Start coordinate must be less than end.', true);
+                return;
+            }
+
+            try {
+                const overlapEndpoint = `${ensemblServer}/overlap/region/human/${regionStr}?feature=gene`;
+                const genes = await apiFetch(overlapEndpoint);
+
+                if (genes.length === 0) {
+                    appendOutputLine(regionStr, 'No overlapping genes found');
+                    renderLog(regionStr, 'API call for overlapping genes returned an empty list.', false);
+                    return;
+                }
+
+                const geneAnalysisPromises = genes.map(gene => analyzeGeneOverlap(gene, cnvStart, cnvEnd));
+                const geneResults = await Promise.all(geneAnalysisPromises);
+
+                const summaryText = geneResults.map(r => r.summary).join(',');
+                const fullLogText = geneResults.map(r => r.log.join('\n')).join('\n\n');
+
+                appendOutputLine(regionStr, summaryText);
+                renderLog(regionStr, fullLogText, false);
+
+            } catch (error) {
+                console.error(`Error processing region ${regionStr}:`, error);
+                appendOutputLine(regionStr, `ERROR: ${error.message || 'API request failed.'}`);
+                renderLog(regionStr, error.stack, true);
+            }
+        }
+
+        async function analyzeGeneOverlap(gene, cnvStart, cnvEnd) {
+            const geneStart = parseInt(gene.start, 10);
+            const geneEnd = parseInt(gene.end, 10);
+            const geneName = gene.external_name || gene.id;
+            const log = [`--- Analysis for ${geneName} (${gene.id}) ---`, `CNV: ${cnvStart}-${cnvEnd}`, `Gene: ${geneStart}-${geneEnd}`];
+
+            if (geneStart >= cnvStart && geneEnd <= cnvEnd) {
+                log.push(`Result: Gene is fully contained within the CNV.`);
+                return { summary: `${geneName}(contained)`, log };
+            }
+
+            if (geneStart <= cnvStart && geneEnd >= cnvEnd) {
+                log.push(`Result: Gene fully contains the CNV.`);
+                return { summary: `${geneName}(contains_CNV)`, log };
+            }
+
+            log.push('Result: Partial overlap detected. Checking breakpoints...');
+            const startBreakpointInGene = cnvStart > geneStart && cnvStart < geneEnd;
+            const endBreakpointInGene = cnvEnd > geneStart && cnvEnd < geneEnd;
+            log.push(`- Is CNV start breakpoint (${cnvStart}) inside gene? ${startBreakpointInGene}`);
+            log.push(`- Is CNV end breakpoint (${cnvEnd}) inside gene? ${endBreakpointInGene}`);
+
+            if (startBreakpointInGene || endBreakpointInGene) {
+                const lookupEndpoint = `${ensemblServer}/lookup/id/${gene.id}?expand=1`;
+                try {
+                    const geneDetails = await apiFetch(lookupEndpoint);
+                    log.push('\nSuccessfully fetched detailed gene data...');
+
+                    let isCodingBreakpoint = false;
+                    const exonsInCnv = new Set();
+                    const exonsAtBreakpoint = new Set();
+
+                    if (geneDetails.Transcript) {
+                        for (const transcript of geneDetails.Transcript) {
+                            if (transcript.Exon) {
+                                for (const exon of transcript.Exon) {
+                                    const exonStart = parseInt(exon.start, 10);
+                                    const exonEnd = parseInt(exon.end, 10);
+                                    if (exonStart >= cnvStart && exonEnd <= cnvEnd) exonsInCnv.add(exon.id);
+                                    const startHitsExon = cnvStart > exonStart && cnvStart < exonEnd;
+                                    const endHitsExon = cnvEnd > exonStart && cnvEnd < exonEnd;
+                                    if (startHitsExon || endHitsExon) exonsAtBreakpoint.add(exon.id);
+                                }
+                            }
+                            if (transcript.Translation) {
+                                const cdsStart = parseInt(transcript.Translation.start, 10);
+                                const cdsEnd = parseInt(transcript.Translation.end, 10);
+                                if ((startBreakpointInGene && cnvStart >= cdsStart && cnvStart <= cdsEnd) || (endBreakpointInGene && cnvEnd >= cdsStart && cnvEnd <= cdsEnd)) {
+                                    isCodingBreakpoint = true;
+                                }
+                            }
+                        }
+                    } else {
+                        log.push('No transcript data found in API response.');
+                    }
+
+                    const breakpointType = isCodingBreakpoint ? 'coding_breakpoint' : 'non-coding_breakpoint';
+                    let summaryParts = [`partial,${breakpointType}`];
+                    log.push(`\nFinal Determination: The overlap involves a ${isCodingBreakpoint ? 'coding' : 'non-coding'} breakpoint.`);
+
+                    if (showExonsInsideCheck.checked && exonsInCnv.size > 0) {
+                        const exonList = [...exonsInCnv].join('|');
+                        summaryParts.push(`exons_inside:${exonList}`);
+                        log.push(`- Exons fully inside CNV: ${exonList}`);
+                    }
+
+                    // *** MODIFIED LOGIC BLOCK ***
+                    if (showExonsBreakpointCheck.checked) {
+                        if (exonsAtBreakpoint.size > 0) {
+                            const exonList = [...exonsAtBreakpoint].join('|');
+                            summaryParts.push(`exon_at_breakpoint:${exonList}`);
+                            log.push(`- Exons physically hit by a CNV breakpoint: ${exonList}`);
+                        } else if (isCodingBreakpoint) {
+                            // This is the special case: coding breakpoint in an intron
+                            summaryParts.push(`intronic_breakpoint`);
+                            log.push(`- Note: The coding breakpoint occurs in an intron, not within an exon's physical boundaries.`);
+                        }
+                    }
+
+                    log.push('\n--- Raw Gene Details (JSON) ---');
+                    log.push(JSON.stringify(geneDetails, null, 2));
+                    log.push('--- End Raw Gene Details ---');
+
+                    return { summary: `${geneName}(${summaryParts.join(';')})`, log };
+                } catch (e) {
+                    log.push(`\nERROR: Could not fetch details for ${geneName}. ${e.message}`);
+                    return { summary: `${geneName}(partial,details_unavailable)`, log };
+                }
+            } else {
+                log.push('No CNV breakpoints fall within the gene\'s boundaries (gene is adjacent to CNV).');
+                return { summary: `${geneName}(adjacent)`, log };
+            }
+        }
+
+        async function apiFetch(endpoint) {
+            const headers = { 'Content-Type': 'application/json' };
+            const response = await fetch(endpoint, { headers });
+
+            if (!response.ok) {
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After');
+                    const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    return apiFetch(endpoint);
+                }
+                const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response.' }));
+                throw new Error(errorData.error || `Request failed with status ${response.status}`);
+            }
+            return response.json();
+        }
+
+        function appendOutputLine(region, geneText) {
+            if (outputTextarea.value === '') {
+                logsContainer.innerHTML = '';
+            }
+            outputTextarea.value += `${region}\t${geneText}\n`;
+        }
+
+        function renderLog(region, logText, isError = false) {
+            const logEntryDiv = document.createElement('div');
+            logEntryDiv.className = 'bg-gray-50 border border-gray-200 rounded-lg p-4 mb-3';
+
+            let headerClass = 'font-semibold text-gray-800';
+            let summaryText = 'See details below.';
+            if (isError) {
+                logEntryDiv.className = 'bg-red-50 border border-red-200 rounded-lg p-4 mb-3';
+                headerClass = 'font-semibold text-red-800';
+                summaryText = 'An error occurred during analysis.';
+            }
+
+            const sanitizedLog = escapeHtml(logText);
+
+            logEntryDiv.innerHTML = `
+                <details>
+                    <summary class="cursor-pointer">
+                        <p class="${headerClass} break-words">${region}</p>
+                        <p class="text-sm text-gray-600">${summaryText}</p>
+                    </summary>
+                    <pre class="mt-3 p-3 bg-gray-800 text-white rounded-md text-xs overflow-x-auto whitespace-pre-wrap break-all"><code>${sanitizedLog}</code></pre>
+                </details>
+            `;
+            logsContainer.appendChild(logEntryDiv);
+        }
+
+    </script>
+</body>
+
+</html>

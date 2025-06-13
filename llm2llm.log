@@ -1,0 +1,63 @@
+TECHNICAL DOCUMENTATION: CNV GENE INTERSECTION ANALYZER
+
+I. PURPOSE & CORE FUNCTIONALITY
+This is a single-page HTML application designed to analyze human genomic Copy Number Variation (CNV) regions against the Ensembl GRCh38/hg38 gene database. It takes one or more genomic regions as input, identifies all overlapping genes, and determines the nature of the intersection for each gene. For partial overlaps, it performs a detailed analysis to identify effects on coding sequences and exons.
+
+II. APPLICATION ARCHITECTURE
+- Type: Single-file, client-side application.
+- Components: HTML for structure, Tailwind CSS (via CDN) for styling, and vanilla JavaScript for all logic.
+- Dependencies:
+  - Ensembl REST API (https://rest.ensembl.org) for all genomic data.
+  - Tailwind CSS (https://cdn.tailwindcss.com) for UI styling.
+  - Inter font (from Google Fonts) for typography.
+- Execution Environment: Runs entirely in a standard web browser. No server backend is required.
+
+III. CORE LOGIC & WORKFLOW
+The main workflow is handled by the `handleSubmission()` function, which triggers `analyzeSingleRegion()` for each input region.
+
+1.  **Input Parsing:**
+    - The application accepts regions in the format `[chrom]:[start]-[end]`.
+    - Input from the `#cnv-input` textarea is split by newlines or commas, allowing for batch processing.
+
+2.  **Primary API Call (Gene Overlap):**
+    - For each valid region, the first API call is made to the `/overlap/region/human/{region}?feature=gene` endpoint.
+    - This returns a list of all gene objects that physically intersect with the specified coordinates.
+
+3.  **Secondary API Call (Detailed Gene Lookup):**
+    - This call is made *only* for genes that are partially overlapped by the CNV.
+    - The endpoint is `/lookup/id/{gene_id}?expand=1`.
+    - The `expand=1` parameter is critical as it populates the response with detailed child objects, including `Transcript`, `Exon`, and `Translation` data, which are necessary for the breakpoint analysis.
+
+4.  **Analysis Logic (`analyzeGeneOverlap` function):**
+    - This is the core analysis function. For a given gene and CNV:
+    - **Simple Cases:**
+        - `contained`: The gene's start and end are both within the CNV's start and end.
+        - `contains_CNV`: The CNV's start and end are both within the gene's start and end.
+        - `adjacent`: The gene overlaps the CNV region but neither of the CNV's breakpoints fall within the gene's boundaries.
+    - **Partial Overlap Analysis:**
+        - It first determines if a CNV breakpoint (`cnvStart`, `cnvEnd`) falls within the gene's coordinates (`geneStart`, `geneEnd`).
+        - If a breakpoint is inside the gene, it fetches the detailed gene model (secondary API call).
+        - **Looping through Transcripts:** The code iterates through every transcript returned for the gene to gather comprehensive information.
+        - **Coding Breakpoint Check:** For each transcript, it checks if a `Translation` object exists. It then checks if the CNV breakpoint coordinate falls between the `transcript.Translation.start` and `transcript.Translation.end`. If true for *any* transcript, the `isCodingBreakpoint` flag is set to `true`.
+        - **Exon Analysis:** For each transcript, it loops through all associated `Exon` objects.
+            - It checks if the exon is fully contained within the CNV and adds its ID to the `exonsInCnv` set.
+            - It checks if a CNV breakpoint coordinate falls within the exon's start/end coordinates and adds its ID to the `exonsAtBreakpoint` set.
+    - **Summary Construction:**
+        - Based on the analysis, a summary string is built.
+        - The `intronic_breakpoint` annotation is a special case: it's added if the "Show exons at breakpoint" option is checked, `isCodingBreakpoint` is true, but the `exonsAtBreakpoint` set is empty. This correctly identifies coding breakpoints that fall within introns.
+
+IV. UI LOGIC & STATE MANAGEMENT
+- **Options:** The state of the `#show-exons-inside` and `#show-exons-breakpoint` checkboxes is read directly at the time of analysis to conditionally add details to the output string.
+- **Output:**
+  - `appendOutputLine()`: Appends a line to the main `#output-textarea` in the format `[region]\t[genes]`.
+  - `renderLog()`: Creates a collapsible `<details>` element for each region's log and appends it to the `#logs-container`. This keeps the UI clean by separating primary results from detailed logs.
+- **Loading State:** `toggleLoading()` manages the UI during API calls by disabling the submit button and showing a spinner.
+
+V. KEY JAVASCRIPT FUNCTIONS
+- `handleSubmission()`: Main entry point, orchestrates the entire process.
+- `analyzeSingleRegion()`: Manages the analysis for one region, including the initial API call and error handling.
+- `analyzeGeneOverlap()`: Contains the core logic for classifying the gene-CNV interaction.
+- `apiFetch()`: A wrapper for `fetch()` that handles JSON parsing and includes a retry mechanism for API rate-limiting (HTTP 429).
+- `appendOutputLine()`, `renderLog()`: Functions responsible for rendering results to the DOM.
+- `toggleLoading()`: Manages UI feedback during processing.
+- `escapeHtml()`: A utility to sanitize log text before rendering it inside a `<pre>` tag to prevent HTML injection.
