@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CNV Gene Intersection Analyzer</title>
+    <title>Chronoscope - CNV Gene Analyzer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -32,7 +32,8 @@
             display: none;
         }
 
-        /* Custom focus styles for checkboxes */
+        /* Custom focus styles for checkboxes and radio buttons */
+        input[type="radio"]:focus,
         input[type="checkbox"]:focus {
             box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
         }
@@ -44,11 +45,10 @@
     <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 md:p-8">
 
         <div class="text-center mb-6">
-            <h1 class="text-3xl font-bold text-gray-900">CNV Gene Analyzer</h1>
-            <p class="text-gray-600 mt-2">Enter CNV regions (hg38) to find intersecting genes from Ensembl.</p>
+            <h1 class="text-3xl font-bold text-gray-900">Chronoscope</h1>
+            <p class="text-gray-600 mt-2">CNV Gene Intersection Analyzer</p>
         </div>
 
-        <!-- Input Section -->
         <div class="mb-4">
             <label for="cnv-input" class="block text-sm font-medium text-gray-700 mb-2">CNV Regions:</label>
             <textarea id="cnv-input" rows="6"
@@ -58,18 +58,37 @@
             </p>
         </div>
 
-        <!-- Options Section -->
-        <div class="mb-6 space-y-2 sm:space-y-0 sm:flex sm:items-center sm:space-x-6">
-            <p class="text-sm font-medium text-gray-700">Include in summary:</p>
-            <div class="flex items-center">
-                <input id="show-exons-inside" type="checkbox"
-                    class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                <label for="show-exons-inside" class="ml-2 block text-sm text-gray-900">Exons inside CNV</label>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div>
+                <p class="text-sm font-medium text-gray-700 mb-2">Reference Genome:</p>
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center">
+                        <input id="genome-hg38" name="genome" type="radio" value="GRCh38"
+                            class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" checked>
+                        <label for="genome-hg38" class="ml-2 block text-sm text-gray-900">hg38 (GRCh38)</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input id="genome-hg19" name="genome" type="radio" value="GRCh37"
+                            class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                        <label for="genome-hg19" class="ml-2 block text-sm text-gray-900">hg19 (GRCh37)</label>
+                    </div>
+                </div>
             </div>
-            <div class="flex items-center">
-                <input id="show-exons-breakpoint" type="checkbox"
-                    class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                <label for="show-exons-breakpoint" class="ml-2 block text-sm text-gray-900">Exons at breakpoint</label>
+            <div>
+                <p class="text-sm font-medium text-gray-700 mb-2">Include in summary:</p>
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center">
+                        <input id="show-exons-inside" type="checkbox"
+                            class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                        <label for="show-exons-inside" class="ml-2 block text-sm text-gray-900">Exons inside CNV</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input id="show-exons-breakpoint" type="checkbox"
+                            class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                        <label for="show-exons-breakpoint" class="ml-2 block text-sm text-gray-900">Exons at
+                            breakpoint</label>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -81,16 +100,13 @@
             </button>
         </div>
 
-        <!-- Results Section -->
         <div id="results-area" class="mt-8 hidden">
-            <!-- Tab-separated output -->
             <div>
                 <label for="output-textarea" class="block text-lg font-semibold text-gray-800 mb-2">Tab-Separated
                     Output</label>
                 <textarea id="output-textarea" readonly rows="8"
                     class="w-full p-3 font-mono text-sm bg-gray-50 border border-gray-300 rounded-lg"></textarea>
             </div>
-            <!-- Detailed logs -->
             <div class="mt-6">
                 <h3 class="text-lg font-semibold text-gray-800 mb-2">Detailed Logs</h3>
                 <div id="logs-container">
@@ -111,8 +127,6 @@
         const logsContainer = document.getElementById('logs-container');
         const showExonsInsideCheck = document.getElementById('show-exons-inside');
         const showExonsBreakpointCheck = document.getElementById('show-exons-breakpoint');
-
-        const ensemblServer = 'https://rest.ensembl.org';
 
         submitBtn.addEventListener('click', handleSubmission);
 
@@ -155,6 +169,10 @@
         }
 
         async function analyzeSingleRegion(regionStr) {
+            // Determine selected genome and corresponding Ensembl server URL
+            const selectedGenome = document.querySelector('input[name="genome"]:checked').value;
+            const ensemblServer = selectedGenome === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+
             const regionRegex = /^(\w+):(\d+)-(\d+)$/;
             const match = regionStr.match(regionRegex);
 
@@ -180,11 +198,12 @@
 
                 if (genes.length === 0) {
                     appendOutputLine(regionStr, 'No overlapping genes found');
-                    renderLog(regionStr, 'API call for overlapping genes returned an empty list.', false);
+                    renderLog(regionStr, `API call for overlapping genes returned an empty list from ${ensemblServer}.`, false);
                     return;
                 }
 
-                const geneAnalysisPromises = genes.map(gene => analyzeGeneOverlap(gene, cnvStart, cnvEnd));
+                // Pass the server URL to the analysis function
+                const geneAnalysisPromises = genes.map(gene => analyzeGeneOverlap(gene, cnvStart, cnvEnd, ensemblServer));
                 const geneResults = await Promise.all(geneAnalysisPromises);
 
                 const summaryText = geneResults.map(r => r.summary).join(',');
@@ -200,7 +219,7 @@
             }
         }
 
-        async function analyzeGeneOverlap(gene, cnvStart, cnvEnd) {
+        async function analyzeGeneOverlap(gene, cnvStart, cnvEnd, ensemblServer) {
             const geneStart = parseInt(gene.start, 10);
             const geneEnd = parseInt(gene.end, 10);
             const geneName = gene.external_name || gene.id;
@@ -266,14 +285,12 @@
                         log.push(`- Exons fully inside CNV: ${exonList}`);
                     }
 
-                    // *** MODIFIED LOGIC BLOCK ***
                     if (showExonsBreakpointCheck.checked) {
                         if (exonsAtBreakpoint.size > 0) {
                             const exonList = [...exonsAtBreakpoint].join('|');
                             summaryParts.push(`exon_at_breakpoint:${exonList}`);
                             log.push(`- Exons physically hit by a CNV breakpoint: ${exonList}`);
                         } else if (isCodingBreakpoint) {
-                            // This is the special case: coding breakpoint in an intron
                             summaryParts.push(`intronic_breakpoint`);
                             log.push(`- Note: The coding breakpoint occurs in an intron, not within an exon's physical boundaries.`);
                         }
