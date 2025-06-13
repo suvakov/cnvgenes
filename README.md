@@ -1,6 +1,6 @@
 # CNV Gene Intersection Analyzer
 
-A single-page web tool to analyze chromosomal Copy Number Variation (CNV) regions and identify intersecting genes. The tool queries the Ensembl (hg38/GRCh38) database to provide detailed information about how a given CNV affects overlapping genes.
+A [single-page web tool](https://suvakov.github.io/cnvgenes/) to analyze chromosomal Copy Number Variation (CNV) regions and identify intersecting genes. The tool queries the Ensembl (hg38/GRCh38) database to provide detailed information about how a given CNV affects overlapping genes.
 
 ## Description
 
